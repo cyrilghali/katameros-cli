@@ -2,6 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -481,6 +486,95 @@ func TestResolveViewsVerseAliases(t *testing.T) {
 	}
 	if verse[0] != psalm[0] {
 		t.Error("verse should resolve to the same filter as psalm")
+	}
+}
+
+// ── friendlyNetError ────────────────────────────────────────
+
+func TestFriendlyNetError(t *testing.T) {
+	t.Run("DNS error", func(t *testing.T) {
+		err := &net.DNSError{Err: "no such host", Name: "api.katameros.app"}
+		got := friendlyNetError(err)
+		if !strings.Contains(got.Error(), "check your internet connection") {
+			t.Errorf("expected connectivity hint, got: %v", got)
+		}
+	})
+
+	t.Run("timeout via OpError", func(t *testing.T) {
+		err := &net.OpError{Op: "dial", Net: "tcp", Err: &timeoutErr{}}
+		got := friendlyNetError(err)
+		if !strings.Contains(got.Error(), "timed out") {
+			t.Errorf("expected timeout hint, got: %v", got)
+		}
+	})
+
+	t.Run("generic OpError", func(t *testing.T) {
+		err := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+		got := friendlyNetError(err)
+		if !strings.Contains(got.Error(), "network error") {
+			t.Errorf("expected network error hint, got: %v", got)
+		}
+	})
+
+	t.Run("unknown error passed through", func(t *testing.T) {
+		err := errors.New("something weird")
+		got := friendlyNetError(err)
+		if got.Error() != "something weird" {
+			t.Errorf("expected passthrough, got: %v", got)
+		}
+	})
+}
+
+// timeoutErr is a helper that satisfies net.Error for testing.
+type timeoutErr struct{}
+
+func (e *timeoutErr) Error() string   { return "i/o timeout" }
+func (e *timeoutErr) Timeout() bool   { return true }
+func (e *timeoutErr) Temporary() bool { return true }
+
+// ── fetchReadings (with test server) ────────────────────────
+
+func TestFetchReadingsHTTPStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     int
+		body       string
+		wantErr    string
+	}{
+		{"500 error", http.StatusInternalServerError, `{}`, "API returned 500"},
+		{"404 error", http.StatusNotFound, `{}`, "API returned 404"},
+		{"503 error", http.StatusServiceUnavailable, `{}`, "API returned 503"},
+		{"invalid JSON", http.StatusOK, `<html>not json</html>`, "not valid JSON"},
+		{"200 ok", http.StatusOK, `{"copticDate":"1/1/1740","sections":[]}`, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.status)
+				fmt.Fprint(w, tt.body)
+			}))
+			defer srv.Close()
+
+			// Temporarily override the fetch URL by calling the server directly
+			data, err := fetchFromURL(srv.URL)
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if data == nil {
+					t.Fatal("expected data, got nil")
+				}
+			} else {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("error = %q, want substring %q", err.Error(), tt.wantErr)
+				}
+			}
+		})
 	}
 }
 

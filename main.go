@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -107,23 +109,51 @@ func fetchReadings(date string, langID int) (*apiResponse, error) {
 		"https://api.katameros.app/readings/gregorian/%s?languageId=%d",
 		date, langID,
 	)
+	return fetchFromURL(url)
+}
+
+func fetchFromURL(url string) (*apiResponse, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
-		return nil, err
+		return nil, friendlyNetError(err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
 	var data apiResponse
 	if err := json.Unmarshal(body, &data); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unexpected API response (not valid JSON)")
 	}
 	return &data, nil
+}
+
+// friendlyNetError translates common network errors into short,
+// actionable messages.
+func friendlyNetError(err error) error {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return fmt.Errorf("cannot reach api.katameros.app — check your internet connection")
+	}
+	var netOpErr *net.OpError
+	if errors.As(err, &netOpErr) {
+		if netOpErr.Timeout() {
+			return fmt.Errorf("request timed out — the API may be down or your connection is slow")
+		}
+		return fmt.Errorf("network error — check your internet connection")
+	}
+	if os.IsTimeout(err) {
+		return fmt.Errorf("request timed out — the API may be down or your connection is slow")
+	}
+	return err
 }
 
 // ── View filter ─────────────────────────────────────────────
