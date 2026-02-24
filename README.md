@@ -1,6 +1,23 @@
-# katameros-cli
+<div align="center">
 
-Daily Coptic Orthodox readings in your terminal.
+<br>
+
+# ⳨ katameros-cli
+
+**ⲡⲓⲕⲁⲧⲁⲙⲉⲣⲟⲥ**
+
+_Daily Coptic Orthodox readings in your terminal._
+
+<br>
+
+[![Release](https://img.shields.io/github/v/release/cyrilghali/katameros-cli?style=flat-square&color=c9942e)](https://github.com/cyrilghali/katameros-cli/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/cyrilghali/katameros-cli/ci.yml?style=flat-square&label=tests)](https://github.com/cyrilghali/katameros-cli/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-c9942e?style=flat-square)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
+
+</div>
+
+<br>
 
 ```
 $ katameros-cli
@@ -26,15 +43,29 @@ $ katameros-cli
             Gloire à Dieu éternellement Amen.
 ```
 
-## Install
+<br>
 
-### One-liner (Linux / macOS)
+> **ⲕⲁⲧⲁ ⲙⲉⲣⲟⲥ** — _"according to the part"_ — the Coptic Orthodox lectionary that assigns
+> specific Bible readings to each day of the liturgical year.
+
+---
+
+<br>
+
+## ⳨ Install
+
+**One-liner** (Linux / macOS):
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/cyrilghali/katameros-cli/main/install.sh | sh
 ```
 
-### Download binary directly
+<details>
+<summary>Other methods</summary>
+
+<br>
+
+#### Download binary
 
 Grab the archive for your platform from the [releases page](https://github.com/cyrilghali/katameros-cli/releases/latest):
 
@@ -43,72 +74,94 @@ curl -sL https://github.com/cyrilghali/katameros-cli/releases/latest/download/ka
 sudo mv katameros-cli /usr/local/bin/
 ```
 
-### From source
+#### From source
 
 ```bash
 go install github.com/cyrilghali/katameros-cli@latest
 ```
 
-## Usage
+</details>
+
+<br>
+
+## ⳨ Usage
 
 ```bash
-katameros-cli                              # today's gospel in French
-katameros-cli -l en                        # in English
-katameros-cli -d 25-12-2025                # specific date
-katameros-cli gospel synaxarium            # combine sections
-katameros-cli all -l ar                    # everything in Arabic
+katameros-cli                       # today's Liturgy Gospel (French)
+katameros-cli -l en                 # in English
+katameros-cli -d 25-12-2025         # specific date (dd-mm-yyyy)
+katameros-cli gospel synaxarium     # combine multiple sections
+katameros-cli all -l ar             # everything in Arabic
 ```
 
-## Sections
+<br>
 
-Sections are positional arguments. Combine as many as you want.
+## ⳨ Sections · ⲛⲓⲁⲛⲁⲅⲛⲱⲥⲓⲥ
 
-| Section | Description |
-|---------|-------------|
-| `gospel` | Liturgy Gospel *(default)* |
+Positional arguments — combine as many as you like.
+
+| Section | What you get |
+|:--|:--|
+| `gospel` | Liturgy Gospel _(default)_ |
 | `psalm` | Liturgy Psalm |
-| `synaxarium` | Saint of the day (alias: `synax`) |
+| `synaxarium` | Saint of the day _(alias: `synax`)_ |
 | `pauline` | Pauline Epistle |
 | `catholic` | Catholic Epistle |
-| `epistles` | Pauline + Catholic combined |
+| `epistles` | Pauline + Catholic |
 | `acts` | Acts of the Apostles |
-| `prophecies` | Matins OT readings |
-| `matins` | Full Matins section |
-| `liturgy` | Full Liturgy section |
+| `prophecies` | Old Testament (Matins) |
+| `matins` | Full Matins |
+| `liturgy` | Full Liturgy |
 | `all` | Everything |
 
-## Options
+<br>
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `-d`, `--date` | Date in `dd-mm-yyyy` format | today |
-| `-l`, `--lang` | Language code | `fr` |
-| `--no-color` | Disable ANSI colors | auto-detected |
-| `-h`, `--help` | Show help | |
+## ⳨ Options
 
-## Supported languages
+```
+-d, --date <dd-mm-yyyy>   Date to fetch (default: today)
+-l, --lang <code>         Language (default: fr)
+    --no-color            Disable ANSI colors (also honors NO_COLOR env)
+-h, --help                Show help
+```
 
-| Language | Code | Bible version |
-|----------|------|---------------|
-| French | `fr` | Louis Segond 1910 |
-| English | `en` | NKJV |
-| Arabic | `ar` | Van Dyck |
-| Italian | `it` | Riveduta 1927 |
-| German | `de` | Einheitsuebersetzung 1980 |
-| Polish | `pl` | Biblia gdanska |
-| Spanish | `es` | Reina Valera 1865 |
-| Dutch | `nl` | HSV |
+<br>
 
-## How it works
+## ⳨ Languages · ⲛⲓⲁⲥⲡⲓ
 
-A single Go binary that fetches the day's readings from the [Katameros API](https://github.com/pierresaid/katameros-api), extracts the requested sections, and prints ANSI-formatted output to your terminal.
+| | Language | Code | Bible |
+|:--|:--|:--|:--|
+| :fr: | French | `fr` | Louis Segond 1910 |
+| :gb: | English | `en` | NKJV |
+| :saudi_arabia: | Arabic | `ar` | Van Dyck |
+| :it: | Italian | `it` | Riveduta 1927 |
+| :de: | German | `de` | Einheitsuebersetzung 1980 |
+| :poland: | Polish | `pl` | Biblia Gdanska |
+| :es: | Spanish | `es` | Reina Valera 1865 |
+| :netherlands: | Dutch | `nl` | HSV |
 
-Colors are automatically disabled when piping output or when the `NO_COLOR` environment variable is set.
+<br>
 
-## Credits
+## ⳨ How it works
 
-Readings data provided by [pierresaid/katameros-api](https://github.com/pierresaid/katameros-api).
+A single Go binary fetches the day's readings from the [Katameros API](https://github.com/pierresaid/katameros-api), extracts the requested sections, and prints ANSI-formatted output to stdout. Colors are auto-detected and respect the [`NO_COLOR`](https://no-color.org) convention.
 
-## License
+<br>
+
+## ⳨ Credits
+
+Readings provided by [pierresaid/katameros-api](https://github.com/pierresaid/katameros-api).
+
+## ⳨ License
 
 [MIT](LICENSE)
+
+<br>
+
+---
+
+<p align="center">
+  <em>ⲡⲓⲱⲟⲩ ⲙ̀Ⲫϯ</em>
+  <br>
+  Glory to God forever · <strong>ⲁⲙⲏⲛ</strong>
+</p>
