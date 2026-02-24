@@ -31,6 +31,24 @@ $ curl localhost:5000
 
 ## Install
 
+### One-liner (Linux / macOS)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/cyrilghali/katameros-cli/main/install.sh | sh
+```
+
+This downloads the latest release binary and installs it to `/usr/local/bin`.
+
+### Download binary directly
+
+Grab the archive for your platform from the [releases page](https://github.com/cyrilghali/katameros-cli/releases/latest):
+
+```bash
+# Example: Linux amd64
+curl -sL https://github.com/cyrilghali/katameros-cli/releases/latest/download/katameros-cli_linux_amd64.tar.gz | tar xz
+sudo mv katameros-cli /usr/local/bin/
+```
+
 ### From source
 
 ```bash
