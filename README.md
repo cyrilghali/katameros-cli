@@ -1,14 +1,13 @@
 # katameros-cli
 
-Curlable daily Liturgy Gospel from the Coptic Orthodox lectionary.
-Like [wttr.in](https://wttr.in) but for scripture.
+Daily Coptic Orthodox readings in your terminal.
 
 ```
-$ curl localhost:5000
+$ katameros-cli
 
-  ╭──────────────────────────────────────────────────────────╮
-  │              24-02-2026  ·  17 Amshir 1742               │
-  ╰──────────────────────────────────────────────────────────╯
+  ╭────────────────────────────────────────────────────────╮
+  │             24-02-2026  ·  17 Amshir 1742              │
+  ╰────────────────────────────────────────────────────────╯
 
   Marc 10:17-27
   ─────────────
@@ -17,8 +16,6 @@ $ curl localhost:5000
        et se jetant à genoux devant lui : Bon maître, lui
        demanda-t-il, que dois-je faire pour hériter la vie
        éternelle ?
-   18  Jésus lui dit : Pourquoi m'appelles-tu bon ? Il n'y a
-       de bon que Dieu seul.
    ...
    27  Jésus les regarda, et dit : Cela est impossible aux
        hommes, mais non à Dieu : car tout est possible à
@@ -37,14 +34,11 @@ $ curl localhost:5000
 curl -sSL https://raw.githubusercontent.com/cyrilghali/katameros-cli/main/install.sh | sh
 ```
 
-This downloads the latest release binary and installs it to `/usr/local/bin`.
-
 ### Download binary directly
 
 Grab the archive for your platform from the [releases page](https://github.com/cyrilghali/katameros-cli/releases/latest):
 
 ```bash
-# Example: Linux amd64
 curl -sL https://github.com/cyrilghali/katameros-cli/releases/latest/download/katameros-cli_linux_amd64.tar.gz | tar xz
 sudo mv katameros-cli /usr/local/bin/
 ```
@@ -55,66 +49,61 @@ sudo mv katameros-cli /usr/local/bin/
 go install github.com/cyrilghali/katameros-cli@latest
 ```
 
-### Build locally
-
-```bash
-git clone https://github.com/cyrilghali/katameros-cli.git
-cd katameros-cli
-go build -o katameros-cli .
-./katameros-cli
-```
-
-### Docker
-
-```bash
-docker build -t katameros-cli .
-docker run -p 5000:5000 katameros-cli
-```
-
 ## Usage
 
 ```bash
-# Start the server
-./katameros-cli                     # listens on :5000
-PORT=8080 ./katameros-cli           # custom port
-
-# Fetch today's Gospel
-curl localhost:5000
-
-# Specific date (dd-mm-yyyy)
-curl localhost:5000/25-12-2025
-
-# Force a language
-curl localhost:5000?lang=en
-curl localhost:5000?lang=ar
-curl localhost:5000/01-01-2026?lang=it
+katameros-cli                              # today's gospel in French
+katameros-cli -l en                        # in English
+katameros-cli -d 25-12-2025                # specific date
+katameros-cli gospel synaxarium            # combine sections
+katameros-cli all -l ar                    # everything in Arabic
 ```
 
-The language defaults to the `Accept-Language` header sent by your HTTP client, with French as fallback.
+## Sections
+
+Sections are positional arguments. Combine as many as you want.
+
+| Section | Description |
+|---------|-------------|
+| `gospel` | Liturgy Gospel *(default)* |
+| `psalm` | Liturgy Psalm |
+| `synaxarium` | Saint of the day (alias: `synax`) |
+| `pauline` | Pauline Epistle |
+| `catholic` | Catholic Epistle |
+| `epistles` | Pauline + Catholic combined |
+| `acts` | Acts of the Apostles |
+| `prophecies` | Matins OT readings |
+| `matins` | Full Matins section |
+| `liturgy` | Full Liturgy section |
+| `all` | Everything |
+
+## Options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-d`, `--date` | Date in `dd-mm-yyyy` format | today |
+| `-l`, `--lang` | Language code | `fr` |
+| `--no-color` | Disable ANSI colors | auto-detected |
+| `-h`, `--help` | Show help | |
 
 ## Supported languages
 
-| Language | `?lang=` | Bible version |
-|----------|----------|---------------|
-| French   | `fr`     | Louis Segond 1910 |
-| English  | `en`     | NKJV |
-| Arabic   | `ar`     | Van Dyck |
-| Italian  | `it`     | Riveduta 1927 |
-| German   | `de`     | Einheitsuebersetzung 1980 |
-| Polish   | `pl`     | Biblia gdanska |
-| Spanish  | `es`     | Reina Valera 1865 |
-| Dutch    | `nl`     | HSV |
+| Language | Code | Bible version |
+|----------|------|---------------|
+| French | `fr` | Louis Segond 1910 |
+| English | `en` | NKJV |
+| Arabic | `ar` | Van Dyck |
+| Italian | `it` | Riveduta 1927 |
+| German | `de` | Einheitsuebersetzung 1980 |
+| Polish | `pl` | Biblia gdanska |
+| Spanish | `es` | Reina Valera 1865 |
+| Dutch | `nl` | HSV |
 
 ## How it works
 
-A single Go binary (zero dependencies, stdlib only) that:
+A single Go binary that fetches the day's readings from the [Katameros API](https://github.com/pierresaid/katameros-api), extracts the requested sections, and prints ANSI-formatted output to your terminal.
 
-1. Receives an HTTP request
-2. Fetches the day's readings from the [Katameros API](https://github.com/pierresaid/katameros-api)
-3. Extracts the Liturgy Gospel passage
-4. Returns ANSI-formatted plain text to your terminal
-
-Responses are cached in memory for 24 hours per date+language pair.
+Colors are automatically disabled when piping output or when the `NO_COLOR` environment variable is set.
 
 ## Credits
 

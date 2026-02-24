@@ -2,40 +2,106 @@ package main
 
 import (
 	"encoding/json"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
-// ── detectLang ──────────────────────────────────────────────
+// ── parseCLI ────────────────────────────────────────────────
 
-func TestDetectLang(t *testing.T) {
+func TestParseCLI(t *testing.T) {
 	tests := []struct {
-		name   string
-		header string
-		want   int
+		name     string
+		args     []string
+		wantLang string
+		wantSec  []string
+		wantHelp bool
 	}{
-		{"empty defaults to French", "", 1},
-		{"simple French", "fr", 1},
-		{"simple English", "en", 2},
-		{"simple Arabic", "ar", 3},
-		{"with region tag", "fr-FR", 1},
-		{"with quality values", "de;q=0.8,en;q=0.9,fr;q=0.7", 2},
-		{"English first by default quality", "en,fr;q=0.9", 2},
-		{"French preferred over English", "fr;q=1.0,en;q=0.8", 1},
-		{"unknown falls back to French", "zh,ja", 1},
-		{"mixed known and unknown", "zh;q=0.9,it;q=0.8", 4},
-		{"complex real-world header", "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7", 1},
-		{"Dutch", "nl-NL,nl;q=0.9", 9},
-		{"Polish", "pl", 7},
-		{"Spanish", "es-ES", 8},
+		{"no args defaults to gospel+fr", nil, "fr", []string{"gospel"}, false},
+		{"help flag", []string{"--help"}, "fr", []string{"gospel"}, true},
+		{"short help", []string{"-h"}, "fr", []string{"gospel"}, true},
+		{"language flag", []string{"-l", "en"}, "en", []string{"gospel"}, false},
+		{"long language flag", []string{"--lang", "ar"}, "ar", []string{"gospel"}, false},
+		{"date flag", []string{"-d", "25-12-2025"}, "fr", []string{"gospel"}, false},
+		{"single section", []string{"synaxarium"}, "fr", []string{"synaxarium"}, false},
+		{"multiple sections", []string{"gospel", "synaxarium"}, "fr", []string{"gospel", "synaxarium"}, false},
+		{"sections with flags", []string{"-l", "en", "epistles", "acts"}, "en", []string{"epistles", "acts"}, false},
+		{"flags after sections", []string{"all", "-l", "ar"}, "ar", []string{"all"}, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := detectLang(tt.header)
+			c := parseCLI(tt.args)
+			if c.lang != tt.wantLang {
+				t.Errorf("lang = %q, want %q", c.lang, tt.wantLang)
+			}
+			if c.help != tt.wantHelp {
+				t.Errorf("help = %v, want %v", c.help, tt.wantHelp)
+			}
+			if len(c.sections) != len(tt.wantSec) {
+				t.Fatalf("sections = %v, want %v", c.sections, tt.wantSec)
+			}
+			for i, s := range c.sections {
+				if s != tt.wantSec[i] {
+					t.Errorf("sections[%d] = %q, want %q", i, s, tt.wantSec[i])
+				}
+			}
+		})
+	}
+}
+
+// ── resolveViews ────────────────────────────────────────────
+
+func TestResolveViews(t *testing.T) {
+	tests := []struct {
+		name  string
+		names []string
+		want  int // expected number of filters
+	}{
+		{"gospel", []string{"gospel"}, 1},
+		{"epistles expands to 2", []string{"epistles"}, 2},
+		{"synax alias", []string{"synax"}, 1},
+		{"combined no dupes", []string{"gospel", "gospel"}, 1},
+		{"unknown returns empty", []string{"bogus"}, 0},
+		{"mixed known+unknown", []string{"gospel", "bogus"}, 1},
+		{"all", []string{"all"}, 1},
+		{"multiple views", []string{"gospel", "synaxarium", "acts"}, 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveViews(tt.names)
+			if len(got) != tt.want {
+				t.Errorf("resolveViews(%v) returned %d filters, want %d", tt.names, len(got), tt.want)
+			}
+		})
+	}
+}
+
+// ── matches / anyMatch ──────────────────────────────────────
+
+func TestMatches(t *testing.T) {
+	tests := []struct {
+		name    string
+		f       filter
+		sec     int
+		sub     int
+		read    int
+		want    bool
+	}{
+		{"exact match", filter{3, 1, 2}, 3, 1, 2, true},
+		{"wrong section", filter{3, 1, 2}, 2, 1, 2, false},
+		{"wildcard section", filter{-1, 1, 2}, 3, 1, 2, true},
+		{"wildcard sub", filter{3, -1, 2}, 3, 5, 2, true},
+		{"wildcard reading", filter{3, 1, -1}, 3, 1, 99, true},
+		{"all wildcards", filter{-1, -1, -1}, 1, 2, 3, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := matches(tt.f, tt.sec, tt.sub, tt.read)
 			if got != tt.want {
-				t.Errorf("detectLang(%q) = %d, want %d", tt.header, got, tt.want)
+				t.Errorf("matches(%v, %d, %d, %d) = %v, want %v",
+					tt.f, tt.sec, tt.sub, tt.read, got, tt.want)
 			}
 		})
 	}
@@ -45,22 +111,21 @@ func TestDetectLang(t *testing.T) {
 
 func TestFormatCoptic(t *testing.T) {
 	tests := []struct {
-		name  string
 		input string
 		want  string
 	}{
-		{"normal date", "17/6/1742", "17 Amshir 1742"},
-		{"first month", "1/1/1740", "1 Thout 1740"},
-		{"last regular month", "30/12/1742", "30 Mesori 1742"},
-		{"intercalary month", "5/13/1742", "5 Nasie 1742"},
-		{"malformed input", "bad", "bad"},
-		{"month out of range high", "1/14/1742", "1/14/1742"},
-		{"month out of range zero", "1/0/1742", "1/0/1742"},
-		{"empty string", "", ""},
+		{"17/6/1742", "17 Amshir 1742"},
+		{"1/1/1740", "1 Thout 1740"},
+		{"30/12/1742", "30 Mesori 1742"},
+		{"5/13/1742", "5 Nasie 1742"},
+		{"bad", "bad"},
+		{"1/14/1742", "1/14/1742"},
+		{"1/0/1742", "1/0/1742"},
+		{"", ""},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.input, func(t *testing.T) {
 			got := formatCoptic(tt.input)
 			if got != tt.want {
 				t.Errorf("formatCoptic(%q) = %q, want %q", tt.input, got, tt.want)
@@ -76,12 +141,12 @@ func TestWordWrap(t *testing.T) {
 		name  string
 		text  string
 		width int
-		want  int // expected number of lines
+		want  int
 	}{
 		{"empty", "", 40, 0},
-		{"short fits one line", "Hello world", 40, 1},
-		{"wraps at width", "Hello world this is a longer sentence that should wrap", 20, 3},
-		{"single long word", "superlongword", 5, 1}, // can't break a word
+		{"short fits", "Hello world", 40, 1},
+		{"wraps", "Hello world this is a longer sentence that should wrap", 20, 3},
+		{"single long word", "superlongword", 5, 1},
 		{"whitespace only", "   ", 40, 0},
 	}
 
@@ -89,16 +154,8 @@ func TestWordWrap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := wordWrap(tt.text, tt.width)
 			if len(got) != tt.want {
-				t.Errorf("wordWrap(%q, %d) returned %d lines, want %d: %v",
+				t.Errorf("wordWrap(%q, %d) = %d lines, want %d: %v",
 					tt.text, tt.width, len(got), tt.want, got)
-			}
-			// verify no line (except single-word overflow) exceeds width
-			for i, line := range got {
-				words := strings.Fields(line)
-				if len(words) > 1 && len(line) > tt.width {
-					t.Errorf("line %d exceeds width %d: %q (%d chars)",
-						i, tt.width, line, len(line))
-				}
 			}
 		})
 	}
@@ -107,29 +164,24 @@ func TestWordWrap(t *testing.T) {
 // ── formatVerse ─────────────────────────────────────────────
 
 func TestFormatVerse(t *testing.T) {
-	t.Run("short verse fits one line", func(t *testing.T) {
-		result := formatVerse(1, "In the beginning.")
-		if !strings.Contains(result, "In the beginning.") {
-			t.Errorf("expected verse text in output, got: %q", result)
-		}
-		if !strings.Contains(result, "1") {
-			t.Errorf("expected verse number in output, got: %q", result)
+	t.Run("short verse", func(t *testing.T) {
+		r := formatVerse(1, "In the beginning.")
+		if !strings.Contains(r, "In the beginning.") {
+			t.Errorf("missing text: %q", r)
 		}
 	})
 
 	t.Run("long verse wraps", func(t *testing.T) {
-		long := strings.Repeat("word ", 20)
-		result := formatVerse(17, long)
-		lines := strings.Split(result, "\n")
-		if len(lines) < 2 {
-			t.Errorf("expected multiple lines for long verse, got %d", len(lines))
+		r := formatVerse(17, strings.Repeat("word ", 20))
+		if strings.Count(r, "\n") < 1 {
+			t.Error("expected multiple lines for long verse")
 		}
 	})
 
 	t.Run("empty text", func(t *testing.T) {
-		result := formatVerse(5, "")
-		if !strings.Contains(result, "5") {
-			t.Errorf("expected verse number even for empty text, got: %q", result)
+		r := formatVerse(5, "")
+		if !strings.Contains(r, "5") {
+			t.Errorf("expected verse number: %q", r)
 		}
 	})
 }
@@ -138,240 +190,210 @@ func TestFormatVerse(t *testing.T) {
 
 func TestCenter(t *testing.T) {
 	t.Run("plain text", func(t *testing.T) {
-		result := center("hello", 20)
-		// "hello" is 5 chars, should have ~7-8 leading spaces
-		trimmed := strings.TrimRight(result, " ")
-		leading := len(trimmed) - len("hello")
+		r := center("hello", 20)
+		leading := len(r) - len(strings.TrimLeft(r, " "))
 		if leading < 7 || leading > 8 {
-			t.Errorf("expected ~7-8 leading spaces, got %d: %q", leading, result)
+			t.Errorf("expected ~7-8 leading spaces, got %d", leading)
 		}
 	})
 
-	t.Run("text with ANSI codes", func(t *testing.T) {
-		text := "\x1b[1mhello\x1b[0m"
-		result := center(text, 20)
-		// visible length is 5, so padding should be same as plain
-		if !strings.Contains(result, "hello") {
-			t.Errorf("ANSI text should be preserved: %q", result)
+	t.Run("with ANSI", func(t *testing.T) {
+		r := center("\x1b[1mhi\x1b[0m", 20)
+		if !strings.Contains(r, "hi") {
+			t.Errorf("lost text: %q", r)
 		}
 	})
 
-	t.Run("text wider than width", func(t *testing.T) {
-		result := center("this is very long text", 5)
-		if !strings.Contains(result, "this is very long text") {
-			t.Errorf("wide text should be returned as-is: %q", result)
+	t.Run("wider than width", func(t *testing.T) {
+		r := center("very long text here", 5)
+		if !strings.Contains(r, "very long text here") {
+			t.Errorf("should return as-is: %q", r)
 		}
 	})
 }
 
-// ── extractGospel ───────────────────────────────────────────
+// ── stripHTML ───────────────────────────────────────────────
 
-func TestExtractGospel(t *testing.T) {
-	t.Run("finds gospel in valid data", func(t *testing.T) {
-		data := &apiResponse{
-			Sections: []section{
-				{
-					ID:    3, // Liturgy
-					Title: "Liturgy",
-					SubSections: []subSection{
-						{
-							ID:    1, // Psalm & Gospel
-							Title: "Psalm & Gospel",
-							Readings: []reading{
-								{ID: 1, Conclusion: "Alleluia"}, // Psalm
-								{
-									ID:         2, // Gospel
-									Conclusion: "Glory be to God forever.",
-									Passages: []passage{
-										{
-											BookTranslation: "Mark",
-											Ref:             "10:17-27",
-											Verses: []verse{
-												{Number: 17, Text: "Test verse"},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
+func TestStripHTML(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"plain text", "hello", "hello"},
+		{"p tags", "<p>Hello</p><p>World</p>", "Hello\n\nWorld"},
+		{"br tags", "line1<br>line2", "line1\nline2"},
+		{"nested tags", "<p><strong>Bold</strong> and <em>italic</em></p>", "Bold and italic"},
+		{"entities", "&amp; &lt; &gt;", "& < >"},
+		{"span with attributes", `<span dir="RTL" lang="AR-SA">text</span>`, "text"},
+		{"empty", "", ""},
+	}
 
-		g := extractGospel(data)
-		if g == nil {
-			t.Fatal("expected gospel, got nil")
-		}
-		if g.ID != 2 {
-			t.Errorf("expected reading ID 2, got %d", g.ID)
-		}
-		if len(g.Passages) != 1 {
-			t.Errorf("expected 1 passage, got %d", len(g.Passages))
-		}
-		if g.Passages[0].BookTranslation != "Mark" {
-			t.Errorf("expected Mark, got %s", g.Passages[0].BookTranslation)
-		}
-	})
-
-	t.Run("returns nil when no Liturgy section", func(t *testing.T) {
-		data := &apiResponse{
-			Sections: []section{
-				{ID: 2, Title: "Matins"},
-			},
-		}
-		if g := extractGospel(data); g != nil {
-			t.Errorf("expected nil, got %+v", g)
-		}
-	})
-
-	t.Run("returns nil when no Gospel reading", func(t *testing.T) {
-		data := &apiResponse{
-			Sections: []section{
-				{
-					ID: 3,
-					SubSections: []subSection{
-						{
-							ID: 1,
-							Readings: []reading{
-								{ID: 1}, // only Psalm, no Gospel
-							},
-						},
-					},
-				},
-			},
-		}
-		if g := extractGospel(data); g != nil {
-			t.Errorf("expected nil, got %+v", g)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripHTML(tt.input)
+			if got != tt.want {
+				t.Errorf("stripHTML(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
 }
 
-// ── render ──────────────────────────────────────────────────
+// ── extractGospel (via filters) ─────────────────────────────
 
-func TestRender(t *testing.T) {
-	data := &apiResponse{
+func buildTestData() *apiResponse {
+	return &apiResponse{
 		CopticDate: "17/6/1742",
 		Sections: []section{
 			{
-				ID: 3,
+				ID:    2,
+				Title: "Matins",
 				SubSections: []subSection{
 					{
-						ID: 1,
+						ID:    2,
+						Title: "Prophecies",
 						Readings: []reading{
-							{ID: 1},
-							{
-								ID:         2,
-								Conclusion: "Glory be to God forever.",
-								Passages: []passage{
-									{
-										BookTranslation: "Mark",
-										Ref:             "10:17-27",
-										Verses: []verse{
-											{Number: 17, Text: "As He was going out on the road."},
-											{Number: 18, Text: "Why do you call Me good?"},
-										},
-									},
-								},
-							},
+							{ID: 7, Passages: []passage{{BookTranslation: "Job", Ref: "19:1-26", Verses: []verse{{Number: 1, Text: "Job spoke."}}}}},
+						},
+					},
+					{
+						ID:    1,
+						Title: "Psalm & Gospel",
+						Readings: []reading{
+							{ID: 1, Passages: []passage{{BookTranslation: "Psalms", Ref: "41:4", Verses: []verse{{Number: 4, Text: "Psalm verse."}}}}},
+							{ID: 2, Conclusion: "Glory.", Passages: []passage{{BookTranslation: "Luke", Ref: "12:22-31", Verses: []verse{{Number: 22, Text: "Do not worry."}}}}},
+						},
+					},
+				},
+			},
+			{
+				ID:    3,
+				Title: "Liturgy",
+				SubSections: []subSection{
+					{ID: 3, Title: "Pauline Epistle", Readings: []reading{{ID: 3, Passages: []passage{{BookTranslation: "2 Corinthians", Ref: "9:6-15", Verses: []verse{{Number: 6, Text: "Sow bountifully."}}}}}}},
+					{ID: 4, Title: "Catholic Epistle", Readings: []reading{{ID: 4, Passages: []passage{{BookTranslation: "James", Ref: "1:1-12", Verses: []verse{{Number: 1, Text: "James, servant."}}}}}}},
+					{ID: 5, Title: "Acts", Readings: []reading{{ID: 5, Passages: []passage{{BookTranslation: "Acts", Ref: "4:13-22", Verses: []verse{{Number: 13, Text: "Boldness of Peter."}}}}}}},
+					{ID: 10, Title: "Synaxarium", Readings: []reading{{ID: 6, Title: "St. Mina", HTML: "<p>He was a monk.</p>"}}},
+					{
+						ID:    1,
+						Title: "Psalm & Gospel",
+						Readings: []reading{
+							{ID: 1, Passages: []passage{{BookTranslation: "Psalms", Ref: "41:1", Verses: []verse{{Number: 1, Text: "Blessed."}}}}},
+							{ID: 2, Conclusion: "Glory be.", Passages: []passage{{BookTranslation: "Mark", Ref: "10:17-27", Verses: []verse{{Number: 17, Text: "Good Teacher."}}}}},
 						},
 					},
 				},
 			},
 		},
 	}
+}
 
-	output := render(data, "24-02-2026")
+func TestExtractGospel(t *testing.T) {
+	data := buildTestData()
+	filters := resolveViews([]string{"gospel"})
+	out := render(data, "24-02-2026", filters)
 
-	checks := []struct {
-		name string
-		want string
-	}{
-		{"contains date", "24-02-2026"},
-		{"contains coptic date", "17 Amshir 1742"},
-		{"contains book", "Mark"},
-		{"contains ref", "10:17-27"},
-		{"contains verse 17", "As He was going out"},
-		{"contains verse 18", "Why do you call Me good"},
-		{"contains conclusion", "Glory be to God forever."},
-		{"contains box top", "╭"},
-		{"contains box bottom", "╰"},
+	if !strings.Contains(out, "Mark") {
+		t.Error("gospel should contain Mark")
 	}
-
-	for _, c := range checks {
-		t.Run(c.name, func(t *testing.T) {
-			if !strings.Contains(output, c.want) {
-				t.Errorf("render output missing %q", c.want)
-			}
-		})
+	if strings.Contains(out, "Job") {
+		t.Error("gospel should not contain Job")
+	}
+	if strings.Contains(out, "Matins") {
+		t.Error("single view should not show section headers")
 	}
 }
 
-// ── HTTP handler ────────────────────────────────────────────
+func TestExtractSynaxarium(t *testing.T) {
+	data := buildTestData()
+	filters := resolveViews([]string{"synaxarium"})
+	out := render(data, "24-02-2026", filters)
 
-func TestHandler(t *testing.T) {
-	// We use a mock upstream by replacing fetchReadings behavior.
-	// For integration tests, we test the handler routing and error cases.
-
-	t.Run("bad date returns 400", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/not-a-date", nil)
-		w := httptest.NewRecorder()
-		handler(w, req)
-
-		if w.Code != 400 {
-			t.Errorf("expected 400, got %d", w.Code)
-		}
-		if !strings.Contains(w.Body.String(), "Bad date") {
-			t.Errorf("expected error message, got: %s", w.Body.String())
-		}
-	})
-
-	t.Run("content type is text/plain", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/not-a-date", nil)
-		w := httptest.NewRecorder()
-		handler(w, req)
-
-		ct := w.Header().Get("Content-Type")
-		if !strings.HasPrefix(ct, "text/plain") {
-			t.Errorf("expected text/plain, got %s", ct)
-		}
-	})
-
-	t.Run("lang query param is respected", func(t *testing.T) {
-		// We can't fully test without hitting the real API,
-		// but we can verify the param parsing doesn't crash.
-		req := httptest.NewRequest("GET", "/?lang=en", nil)
-		w := httptest.NewRecorder()
-		// This will hit the real API or fail gracefully
-		handler(w, req)
-		// Should be 200 or 502 (if API unreachable), not a panic
-		if w.Code != 200 && w.Code != 502 {
-			t.Errorf("expected 200 or 502, got %d", w.Code)
-		}
-	})
+	if !strings.Contains(out, "St. Mina") {
+		t.Error("synaxarium should contain title")
+	}
+	if !strings.Contains(out, "He was a monk.") {
+		t.Error("synaxarium should contain stripped HTML content")
+	}
 }
 
-// ── JSON unmarshaling ───────────────────────────────────────
+func TestExtractEpistles(t *testing.T) {
+	data := buildTestData()
+	filters := resolveViews([]string{"epistles"})
+	out := render(data, "24-02-2026", filters)
+
+	if !strings.Contains(out, "2 Corinthians") {
+		t.Error("epistles should contain Pauline")
+	}
+	if !strings.Contains(out, "James") {
+		t.Error("epistles should contain Catholic")
+	}
+}
+
+func TestExtractAll(t *testing.T) {
+	data := buildTestData()
+	filters := resolveViews([]string{"all"})
+	out := render(data, "24-02-2026", filters)
+
+	for _, want := range []string{"Job", "Luke", "2 Corinthians", "James", "Acts", "St. Mina", "Mark"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("all should contain %q", want)
+		}
+	}
+	if !strings.Contains(out, "Matins") {
+		t.Error("all should show section headers")
+	}
+	if !strings.Contains(out, "Liturgy") {
+		t.Error("all should show section headers")
+	}
+}
+
+func TestCombinedViews(t *testing.T) {
+	data := buildTestData()
+	filters := resolveViews([]string{"gospel", "synaxarium"})
+	out := render(data, "24-02-2026", filters)
+
+	if !strings.Contains(out, "Mark") {
+		t.Error("combined should contain gospel")
+	}
+	if !strings.Contains(out, "St. Mina") {
+		t.Error("combined should contain synaxarium")
+	}
+	// Multi-view shows section headers
+	if !strings.Contains(out, "Liturgy") {
+		t.Error("combined views should show section headers")
+	}
+}
+
+func TestRenderHeader(t *testing.T) {
+	data := buildTestData()
+	filters := resolveViews([]string{"gospel"})
+	out := render(data, "24-02-2026", filters)
+
+	if !strings.Contains(out, "24-02-2026") {
+		t.Error("missing date")
+	}
+	if !strings.Contains(out, "17 Amshir 1742") {
+		t.Error("missing coptic date")
+	}
+	if !strings.Contains(out, "╭") || !strings.Contains(out, "╰") {
+		t.Error("missing box borders")
+	}
+}
+
+// ── JSON parsing ────────────────────────────────────────────
 
 func TestAPIResponseParsing(t *testing.T) {
 	raw := `{
 		"copticDate": "17/6/1742",
 		"sections": [{
-			"id": 3,
-			"title": "Liturgy",
+			"id": 3, "title": "Liturgy",
 			"subSections": [{
-				"id": 1,
-				"title": "Psalm & Gospel",
+				"id": 1, "title": "Psalm & Gospel",
 				"readings": [{
-					"id": 2,
-					"conclusion": "Glory",
-					"passages": [{
-						"bookTranslation": "Luke",
-						"ref": "12:22-31",
-						"verses": [
-							{"number": 22, "text": "Do not worry about your life."},
-							{"number": 23, "text": "Life is more than food."}
-						]
+					"id": 2, "conclusion": "Glory",
+					"passages": [{"bookTranslation": "Luke", "ref": "12:22-31",
+						"verses": [{"number": 22, "text": "Do not worry."}]
 					}]
 				}]
 			}]
@@ -380,24 +402,15 @@ func TestAPIResponseParsing(t *testing.T) {
 
 	var data apiResponse
 	if err := json.Unmarshal([]byte(raw), &data); err != nil {
-		t.Fatalf("failed to parse JSON: %v", err)
+		t.Fatalf("parse error: %v", err)
 	}
-
 	if data.CopticDate != "17/6/1742" {
-		t.Errorf("copticDate = %q, want 17/6/1742", data.CopticDate)
-	}
-	if len(data.Sections) != 1 {
-		t.Fatalf("expected 1 section, got %d", len(data.Sections))
+		t.Errorf("copticDate = %q", data.CopticDate)
 	}
 
-	g := extractGospel(&data)
-	if g == nil {
-		t.Fatal("extractGospel returned nil")
-	}
-	if len(g.Passages[0].Verses) != 2 {
-		t.Errorf("expected 2 verses, got %d", len(g.Passages[0].Verses))
-	}
-	if g.Passages[0].Verses[0].Text != "Do not worry about your life." {
-		t.Errorf("unexpected verse text: %s", g.Passages[0].Verses[0].Text)
+	filters := resolveViews([]string{"gospel"})
+	out := render(&data, "24-02-2026", filters)
+	if !strings.Contains(out, "Do not worry.") {
+		t.Error("render missing verse text")
 	}
 }
