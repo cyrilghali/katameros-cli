@@ -149,6 +149,8 @@ var viewFilters = map[string][]filter{
 	"matins":     {{2, -1, -1}},
 	"liturgy":    {{3, -1, -1}},
 	"all":        {{-1, -1, -1}},
+	"verse":      {{3, 1, 1}},
+	"vod":        {{3, 1, 1}},
 }
 
 func resolveViews(names []string) []filter {
@@ -430,6 +432,75 @@ func render(data *apiResponse, date string, filters []filter) string {
 	return b.String()
 }
 
+// ── Verse of the day ────────────────────────────────────────
+
+var verseAliases = map[string]bool{"verse": true, "vod": true}
+
+func isVerseMode(sections []string) bool {
+	if len(sections) != 1 {
+		return false
+	}
+	return verseAliases[strings.ToLower(sections[0])]
+}
+
+func renderVerse(data *apiResponse, filters []filter) string {
+	for _, sec := range data.Sections {
+		for _, sub := range sec.SubSections {
+			for _, rd := range sub.Readings {
+				if !anyMatch(filters, sec.ID, sub.ID, rd.ID) {
+					continue
+				}
+				for _, p := range rd.Passages {
+					if len(p.Verses) == 0 {
+						continue
+					}
+					// Collect all verse texts into a single string
+					var parts []string
+					for _, v := range p.Verses {
+						parts = append(parts, strings.TrimSpace(v.Text))
+					}
+					text := strings.Join(parts, " ")
+
+					// Build the reference line
+					ref := fmt.Sprintf("%s%s— %s %s%s",
+						aDim, aItalic, p.BookTranslation, p.Ref, aRst)
+
+					// Render
+					qw := W - 4 // quote text width
+					lines := wordWrap(text, qw)
+
+					var b strings.Builder
+					fmt.Fprintln(&b)
+					for i, l := range lines {
+						if i == 0 {
+							fmt.Fprintf(&b, "  %s\"%s", aWhite, aRst)
+						} else {
+							fmt.Fprintf(&b, "   ")
+						}
+						if i == len(lines)-1 {
+							fmt.Fprintf(&b, "%s\"%s", l, aRst)
+						} else {
+							fmt.Fprintf(&b, "%s", l)
+						}
+						fmt.Fprintln(&b)
+					}
+					fmt.Fprintln(&b)
+					// Right-align the reference
+					refVis := visibleLen(ref)
+					pad := W - refVis
+					if pad < 0 {
+						pad = 0
+					}
+					fmt.Fprintf(&b, "%s%s\n", strings.Repeat(" ", pad), ref)
+					fmt.Fprintln(&b)
+					return b.String()
+				}
+			}
+		}
+	}
+	return fmt.Sprintf("\n  %sNo readings found for this date.%s\n\n", aDim, aRst)
+}
+
 // ── CLI ─────────────────────────────────────────────────────
 
 const helpText = `katameros-cli — daily Coptic Orthodox readings in your terminal
@@ -440,6 +511,7 @@ Usage:
 Sections (combinable, default: gospel):
   gospel        Liturgy Gospel
   psalm         Liturgy Psalm
+  verse         Verse of the day — Liturgy Psalm (alias: vod)
   synaxarium    Saint of the day (alias: synax)
   pauline       Pauline Epistle
   catholic      Catholic Epistle
@@ -563,5 +635,9 @@ func main() {
 	}
 
 	// Render
-	fmt.Print(render(data, c.date, filters))
+	if isVerseMode(c.sections) {
+		fmt.Print(renderVerse(data, filters))
+	} else {
+		fmt.Print(render(data, c.date, filters))
+	}
 }

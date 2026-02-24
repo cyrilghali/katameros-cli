@@ -383,6 +383,109 @@ func TestRenderHeader(t *testing.T) {
 
 // ── JSON parsing ────────────────────────────────────────────
 
+// ── isVerseMode ─────────────────────────────────────────────
+
+func TestIsVerseMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		sections []string
+		want     bool
+	}{
+		{"verse keyword", []string{"verse"}, true},
+		{"vod keyword", []string{"vod"}, true},
+		{"case insensitive", []string{"Verse"}, true}, // isVerseMode lowercases before checking
+		{"gospel is not verse", []string{"gospel"}, false},
+		{"psalm is not verse", []string{"psalm"}, false},
+		{"multiple sections not verse", []string{"verse", "gospel"}, false},
+		{"empty", []string{}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isVerseMode(tt.sections)
+			if got != tt.want {
+				t.Errorf("isVerseMode(%v) = %v, want %v", tt.sections, got, tt.want)
+			}
+		})
+	}
+}
+
+// ── renderVerse ─────────────────────────────────────────────
+
+func TestRenderVerse(t *testing.T) {
+	data := buildTestData()
+	filters := resolveViews([]string{"verse"})
+
+	t.Run("contains verse text in quotes", func(t *testing.T) {
+		out := renderVerse(data, filters)
+		if !strings.Contains(out, "Blessed.") {
+			t.Error("verse should contain psalm text")
+		}
+		if !strings.Contains(out, "\"") {
+			t.Error("verse should be wrapped in quotes")
+		}
+	})
+
+	t.Run("contains reference", func(t *testing.T) {
+		out := renderVerse(data, filters)
+		if !strings.Contains(out, "Psalms 41:1") {
+			t.Errorf("verse should contain reference, got: %q", out)
+		}
+	})
+
+	t.Run("no date header", func(t *testing.T) {
+		out := renderVerse(data, filters)
+		if strings.Contains(out, "╭") || strings.Contains(out, "╰") {
+			t.Error("verse mode should not have box header")
+		}
+	})
+
+	t.Run("no section headers", func(t *testing.T) {
+		out := renderVerse(data, filters)
+		if strings.Contains(out, "Liturgy") || strings.Contains(out, "Matins") {
+			t.Error("verse mode should not show section headers")
+		}
+	})
+
+	t.Run("vod alias same output", func(t *testing.T) {
+		filtersVod := resolveViews([]string{"vod"})
+		outVerse := renderVerse(data, filters)
+		outVod := renderVerse(data, filtersVod)
+		if outVerse != outVod {
+			t.Error("verse and vod should produce identical output")
+		}
+	})
+}
+
+func TestRenderVerseNoData(t *testing.T) {
+	empty := &apiResponse{Sections: []section{}}
+	filters := resolveViews([]string{"verse"})
+	out := renderVerse(empty, filters)
+	if !strings.Contains(out, "No readings found") {
+		t.Error("should show fallback when no readings available")
+	}
+}
+
+// ── resolveViews verse aliases ──────────────────────────────
+
+func TestResolveViewsVerseAliases(t *testing.T) {
+	verse := resolveViews([]string{"verse"})
+	vod := resolveViews([]string{"vod"})
+	psalm := resolveViews([]string{"psalm"})
+
+	if len(verse) != 1 || len(vod) != 1 {
+		t.Fatal("verse/vod should resolve to 1 filter each")
+	}
+	if verse[0] != vod[0] {
+		t.Error("verse and vod should resolve to the same filter")
+	}
+	if verse[0] != psalm[0] {
+		t.Error("verse should resolve to the same filter as psalm")
+	}
+}
+
+// ── JSON parsing ────────────────────────────────────────────
+
 func TestAPIResponseParsing(t *testing.T) {
 	raw := `{
 		"copticDate": "17/6/1742",

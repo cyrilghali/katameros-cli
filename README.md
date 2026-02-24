@@ -92,6 +92,7 @@ katameros-cli -l en                 # in English
 katameros-cli -d 25-12-2025         # specific date (dd-mm-yyyy)
 katameros-cli gospel synaxarium     # combine multiple sections
 katameros-cli all -l ar             # everything in Arabic
+katameros-cli verse                 # verse of the day (compact quote)
 ```
 
 <br>
@@ -104,6 +105,7 @@ Positional arguments — combine as many as you like.
 |:--|:--|
 | `gospel` | Liturgy Gospel _(default)_ |
 | `psalm` | Liturgy Psalm |
+| `verse` | Verse of the day — compact quote format _(alias: `vod`)_ |
 | `synaxarium` | Saint of the day _(alias: `synax`)_ |
 | `pauline` | Pauline Epistle |
 | `catholic` | Catholic Epistle |
